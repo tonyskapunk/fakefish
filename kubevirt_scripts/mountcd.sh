@@ -15,7 +15,7 @@ IS_HTTPS=false
 export VM_NAME=$(echo $BMC_ENDPOINT | awk -F "_" '{print $1}')
 export VM_NAMESPACE=$(echo $BMC_ENDPOINT | awk -F "_" '{print $2}')
 
-source common.sh
+source custom_scripts/common.sh
 
 if [[ -r /var/tmp/kubeconfig ]]; then
   export KUBECONFIG=/var/tmp/kubeconfig
