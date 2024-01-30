@@ -18,8 +18,8 @@ if [[ -r /var/tmp/kubeconfig ]]; then
 fi
 
 # Changes performed to a running VM will be reflected until the next reboot
-NUM_DISK=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.domain.devices.disks[*].name}' | tr " " ";" | { grep -o ";" || true; } | wc -l)
-if [ $? -ne 0 ]; then
+NUM_DISK=( $(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.domain.devices.disks[*].name}') )
+if [ $? -eq 1 ]; then
   echo "Failed to get VM disks."
   exit 1
 fi
@@ -28,24 +28,24 @@ cat <<EOF > /tmp/${VM_NAME}.patch
 [
   {
     "op": "remove",
-    "path": "/spec/template/spec/domain/devices/disks/${NUM_DISK}"
+    "path": "/spec/template/spec/domain/devices/disks/$(( ${#NUM_DISK[@]} - 1 ))"
   }
 ]
 EOF
 
-# If NUM_DISK is <=1 means that mount didn't happen
-if [[ ${NUM_DISK} -gt 1 ]]; then
+# If NUM_DISK is == 1 means that mount didn't happen
+if [[ ${#NUM_DISK[@]} -gt 1 ]]; then
   oc -n ${VM_NAMESPACE} patch vm ${VM_NAME} --patch-file /tmp/${VM_NAME}.patch --type json
-  if [ $? -eq 0 ]; then
-    exit 0
-  else
+  if [ $? -eq 1 ]; then
     echo "Failed to remove ISO disk from VM"
     exit 1
   fi
+else
+  echo "No ISO disk in VM"
 fi
 
-NUM_VOLUMES=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.volumes[*].name}' | tr " " ";" | { grep -o ";" || true; } | wc -l)
-if [ $? -ne 0 ]; then
+NUM_VOLUMES=( $(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.volumes[*].name}') )
+if [ $? -eq 1 ]; then
   echo "Failed to get VM volumes."
   exit 1
 fi
@@ -54,18 +54,18 @@ cat <<EOF > /tmp/${VM_NAME}.patch
 [
   {
     "op": "remove",
-    "path": "/spec/template/spec/volumes/${NUM_VOLUMES}"
+    "path": "/spec/template/spec/volumes/$(( ${#NUM_VOLUMES[@]} - 1 ))"
   }
 ]
 EOF
 
-# If NUM_VOLUMES is <=1 means that mount didn't happen
-if [[ ${NUM_VOLUMES} -gt 1 ]]; then
+# If NUM_VOLUMES is == 1 means that mount didn't happen
+  if [ ${#NUM_VOLUMES[@]} -gt 1 ]; then
   oc -n ${VM_NAMESPACE} patch vm ${VM_NAME} --patch-file /tmp/${VM_NAME}.patch --type json
   if [ $? -eq 0 ]; then
     oc -n ${VM_NAMESPACE} delete configmap ${VM_NAME}-iso-ca &> /dev/null
     oc -n ${VM_NAMESPACE} delete pvc ${VM_NAME}-bootiso
-    if [ $? -ne 0 ]; then
+    if [ $? -eq 1 ]; then
       echo "Failed to delete CDI ISO PVC."
       exit 1
     fi
