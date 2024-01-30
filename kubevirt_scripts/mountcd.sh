@@ -121,7 +121,7 @@ if [ $? -ne 0 ]; then
   echo "Failed to get CDI import state."
   exit 1
 fi
-MAX_WAIT=60
+MAX_WAIT=30
 WAIT=0
 while [[ ${STATUS} != "Import Complete" ]]
 do
