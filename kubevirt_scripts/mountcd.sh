@@ -138,8 +138,8 @@ do
   fi
 done
 
-NUM_VOLUMES=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.volumes[*].name}' | tr " " ";" | { grep -o ";" || true; } | wc -l)
-if [ $? -ne 0 ]; then
+NUM_VOLUMES=( $(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.volumes[*].name}') )
+if [[ $? -eq 1 ]]; then
   echo "Failed to get VM volumes."
   exit 1
 fi
@@ -148,7 +148,7 @@ cat <<EOF > /tmp/${VM_NAME}.patch
 [
   {
     "op": "add",
-    "path": "/spec/template/spec/volumes/$((NUM_VOLUMES + 1))",
+    "path": "/spec/template/spec/volumes/${#NUM_VOLUMES[@]}",
     "value": {
       "name": "${VM_NAME}-bootiso",
       "persistentVolumeClaim": {
@@ -160,8 +160,8 @@ cat <<EOF > /tmp/${VM_NAME}.patch
 EOF
 
 # Add it to VM object if it doesn't exist
-VOLUME_EXIST=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.volumes[*].name}' | grep -c "${VM_NAME}-bootiso")
-if [ $? -ne 0 ]; then
+VOLUME_EXIST=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.volumes[*].name}' | grep -c "${VM_NAME}-bootiso"; exit ${PIPESTATUS[0]})
+if [ $? -eq 1 ]; then
   echo "Failed to get VM volumes."
   exit 1
 fi
@@ -179,8 +179,8 @@ else
 fi
 
 # We get the number of disks, since we need to delete the one we just added to fix the config
-NUM_DISK=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.domain.devices.disks[*].name}' | tr " " ";" | { grep -o ";" || true; } | wc -l)
-if [ $? -ne 0 ]; then
+NUM_DISK=( $(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.domain.devices.disks[*].name}') )
+if [ $? -eq 1 ]; then
   echo "Failed to get VM disks."
   exit 1
 fi
@@ -189,9 +189,9 @@ cat <<EOF > /tmp/${VM_NAME}.patch
 [
   {
     "op": "add",
-    "path": "/spec/template/spec/domain/devices/disks/$((NUM_DISK + 1))",
+    "path": "/spec/template/spec/domain/devices/disks/${#NUM_DISK[@]}",
     "value": {
-      "bootOrder": $((NUM_DISK + 2)),
+      "bootOrder": $(( ${#NUM_DISK[@]} + 1 )),
       "cdrom": {
          "bus": "sata"
       },
@@ -202,8 +202,8 @@ cat <<EOF > /tmp/${VM_NAME}.patch
 EOF
 
 # Add it to VM object if it doesn't exist
-DISK_EXIST=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.domain.devices.disks[*].name}' | grep -c "${VM_NAME}-bootiso")
-if [ $? -ne 0 ]; then
+DISK_EXIST=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.domain.devices.disks[*].name}' | grep -c "${VM_NAME}-bootiso"; exit ${PIPESTATUS[0]})
+if [ $? -eq 1 ]; then
   echo "Failed to get VM volumes."
   exit 1
 fi
