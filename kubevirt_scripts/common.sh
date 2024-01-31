@@ -4,7 +4,7 @@
 # Retry until powered off or reach the max retries
 function stop_vm() {
   MAX_RETRIES=5
-  TRIES=1
+  TRIES=0
 
   virtctl -n ${VM_NAMESPACE} stop ${VM_NAME}
   while true; do
@@ -28,7 +28,7 @@ function stop_vm() {
 # Retry until ready or reach the max retries
 function start_vm() {
   MAX_RETRIES=5
-  TRIES=1
+  TRIES=0
 
   virtctl -n ${VM_NAMESPACE} start ${VM_NAME} || true
   while true; do
@@ -36,10 +36,10 @@ function start_vm() {
     if grep -q "VM is already running" <<< "${output}"; then
       return 0
     else
-      if [[ ${tries} -ge ${max_tries} ]]; then
+      if [[ ${TRIES} -ge ${MAX_TRIES} ]]; then
         return 1
       fi
-      tries=$(( ${tries} + 1 ))
+      TRIES=$(( ${TRIES} + 1 ))
       echo "Waiting to poweron VM. Retrying in 5 seconds. Retry [${TRIES}/${MAX_RETRIES}]"
       sleep 5
     fi

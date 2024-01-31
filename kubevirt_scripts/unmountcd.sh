@@ -17,20 +17,7 @@ if [[ -r /var/tmp/kubeconfig ]]; then
   export KUBECONFIG=/var/tmp/kubeconfig
 fi
 
-# we cannot unmount the disk if it's running
-VM_RUNNING=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.running}')
-if [ $? -ne 0 ]; then
-  echo "Failed to get VM power state."
-  exit 1
-fi
-
-if [[ "${VM_RUNNING}" == "true" ]]; then
-  # Even if we don't unmount the ISO the VM
-  # will boot from HD next time (providing there is an S.O installed)
-  echo "VM is running, ignoring unmount"
-  exit 0
-fi
-
+# Changes performed to a running VM will be reflected until the next reboot
 NUM_DISK=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.domain.devices.disks[*].name}' | tr " " ";" | { grep -o ";" || true; } | wc -l)
 if [ $? -ne 0 ]; then
   echo "Failed to get VM disks."
