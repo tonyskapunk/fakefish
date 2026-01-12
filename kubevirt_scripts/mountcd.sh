@@ -56,6 +56,10 @@ if echo ${ISO} | grep -q https://; then
     echo "Failed to get https server cert."
     exit 1
   fi
+  # Bootstrap VM (IPI), ironic uses a .28 address by default:
+  if grep -qE '^https?://.*\.28:' <<< "${ISO}"; then
+    ISO=$(echo ${ISO} | sed -e 's,\(https*://\).*\.28:\(.*\),\1ironic:\2,')
+  fi
   IS_HTTPS=true
 fi
 
