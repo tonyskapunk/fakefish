@@ -30,39 +30,6 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-if [ -z ${CLUSTER_STORAGE_CLASS} ];then
-  CLUSTER_STORAGE_CLASS=ocs-storagecluster-ceph-rbd
-fi
-
-PVC_SPEC=$(cat <<EOF
-  spec:
-    accessModes:
-    - ReadWriteOnce
-    resources:
-      requests:
-        storage: 5Gi
-    storageClassName: ${CLUSTER_STORAGE_CLASS}
-EOF
-)
-
-if echo ${ISO} | grep -q https://; then
-  HOSTNAME=$(echo ${ISO} | awk -F "https://" '{print $2}' | awk -F "/" '{print $1}' | awk -F ":" '{print $1}')
-  PORT=$(echo ${ISO} | awk -F "https://" '{print $2}' | awk -F "/" '{print $1}' | awk -F ":" '{print $2}')
-  if [ -z ${PORT} ]; then
-    PORT=443
-  fi
-  openssl s_client -showcerts -connect ${HOSTNAME}:${PORT} </dev/null 2>/dev/null | openssl x509 -outform PEM > /tmp/iso-endpoint-ca.crt
-  if [ $? -ne 0 ]; then
-    echo "Failed to get https server cert."
-    exit 1
-  fi
-  # Bootstrap VM (IPI), ironic uses a .28 address by default:
-  if grep -qE '^https?://.*\.28:' <<< "${ISO}"; then
-    ISO=$(echo ${ISO} | sed -e 's,\(https*://\).*\.28:\(.*\),\1ironic:\2,')
-  fi
-  IS_HTTPS=true
-fi
-
 # we need to poweroff the VM if it's running
 VM_WAS_RUNNING=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.running}')
 if [ $? -ne 0 ]; then
@@ -75,74 +42,41 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-if [ ${IS_HTTPS} == "true" ]; then
-  # We don't care about delete configmap return
-  # if it fails it's likely because it didn't exist
-  # we will fail on create if something is wrong with it
-  oc -n ${VM_NAMESPACE} delete configmap ${VM_NAME}-iso-ca &> /dev/null
-  oc -n ${VM_NAMESPACE} create configmap ${VM_NAME}-iso-ca --from-file=ca.crt=/tmp/iso-endpoint-ca.crt
-  if [ $? -ne 0 ]; then
-    echo "Failed to create configmap with https server cert."
-    exit 1
-  fi
+# Download ISO and use virtctl to upload it to a PVC
+WAIT=60
+ISO_FILENAME=$(basename "${ISO}")
 
-  cat <<EOF | oc apply -f -
-  apiVersion: v1
-  kind: PersistentVolumeClaim
-  metadata:
-    annotations:
-      cdi.kubevirt.io/storage.import.certConfigMap: "${VM_NAME}-iso-ca"
-      cdi.kubevirt.io/storage.import.endpoint: "${ISO}"
-      cdi.kubevirt.io/storage.bind.immediate.requested: "true"
-    name: ${VM_NAME}-bootiso
-    namespace: ${VM_NAMESPACE}
-${PVC_SPEC}
-EOF
-  if [ $? -ne 0 ]; then
-    echo "Failed to create PVC."
-    exit 1
-  fi
-else
-  cat <<EOF | oc apply -f -
-  apiVersion: v1
-  kind: PersistentVolumeClaim
-  metadata:
-    annotations:
-      cdi.kubevirt.io/storage.import.endpoint: "${ISO}"
-      cdi.kubevirt.io/storage.bind.immediate.requested: "true"
-    name: ${VM_NAME}-bootiso
-    namespace:  ${VM_NAMESPACE}
-${PVC_SPEC}
-EOF
-  if [ $? -ne 0 ]; then
-    echo "Failed to create PVC."
-    exit 1
-  fi
+if [[ ! -r /tmp/${ISO_FILENAME} ]]; then
+  curl \
+    --insecure \
+    --location \
+    --silent \
+    --output-dir /tmp  \
+    --remote-name \
+    --retry 3 \
+    --retry-max-time ${WAIT} \
+    "${ISO}" || {
+      echo "Failed to download ISO: ${ISO}"
+      exit 1
+    }
 fi
 
-STATUS=$(oc -n ${VM_NAMESPACE} get pvc ${VM_NAME}-bootiso -o jsonpath='{.metadata.annotations.cdi\.kubevirt\.io/storage\.condition\.running\.message}')
-if [ $? -ne 0 ]; then
-  echo "Failed to get CDI import state."
-  exit 1
+if ! oc -n ${VM_NAMESPACE} get pvc ${VM_NAME}-bootiso &> /dev/null; then
+  timeout ${WAIT} \
+    virtctl \
+      -n ${VM_NAMESPACE} \
+      image-upload \
+      pvc \
+      ${VM_NAME}-bootiso \
+      --image-path=/tmp/${ISO_FILENAME} \
+      --insecure \
+      --size 5Gi || {
+        echo "Failed to upload ISO to PVC: ${VM_NAME}-bootiso with ISO: /tmp/${ISO_FILENAME}"
+        exit 1
+      }
+
+  rm -f /tmp/${ISO_FILENAME}
 fi
-MAX_WAIT=60
-WAIT=0
-while [[ ${STATUS} != "Import Complete" ]]
-do
-  WAIT=$((WAIT + 2))
-  sleep 2
-  if [ ${WAIT} -ge ${MAX_WAIT} ]; then
-    # This will make the request fail, Metal3 will retry the operation.
-    echo "Timeout waiting for ISO to be imported"
-    exit 1
-  fi
-  echo "Waiting for ISO to be imported [${WAIT}/${MAX_WAIT}]"
-  STATUS=$(oc -n ${VM_NAMESPACE} get pvc ${VM_NAME}-bootiso -o jsonpath='{.metadata.annotations.cdi\.kubevirt\.io/storage\.condition\.running\.message}')
-  if [ $? -ne 0 ]; then
-    echo "Failed to get CDI import state."
-    exit 1
-  fi
-done
 
 NUM_VOLUMES=$(oc -n ${VM_NAMESPACE} get vm ${VM_NAME} -o jsonpath='{.spec.template.spec.volumes[*].name}' | tr " " ";" | { grep -o ";" || true; } | wc -l)
 if [ $? -ne 0 ]; then
